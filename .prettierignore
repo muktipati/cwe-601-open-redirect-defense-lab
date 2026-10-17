@@ -1,0 +1,7 @@
+dist
+node_modules
+.vite
+package-lock.json
+test-results
+playwright-report
+*.log
