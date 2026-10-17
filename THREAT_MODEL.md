@@ -155,3 +155,17 @@ URL parsing is notoriously inconsistent across different specifications, browser
    - Fallback destinations must fail closed to verified internal paths on the allowlist, sanitized of path traversal (`..`), CRLF injection, backslashes, and encoded path separators (`%2f`).
 5. **Canonical Path Parity**:
    - The internal destination passed to the application router must strictly match the canonical path evaluated against the allowlist, preventing discrepancies where uncanonical paths (such as `/dashboard//`) are validated but returned verbatim.
+
+---
+
+## 8. Verification Strategy: Mapping Threat Countermeasures to Security Tooling
+
+A threat model is only effective if its defensive assumptions are continuously verified through automated AppSec controls:
+
+| STRIDE Threat Category        | Addressed by Defensive Architecture                                                             | Automated Verification Method                  | Tool & Scope in this Repository                                                                              |
+| :---------------------------- | :---------------------------------------------------------------------------------------------- | :--------------------------------------------- | :----------------------------------------------------------------------------------------------------------- |
+| **Spoofing & Tampering**      | Protocol-relative, backslash, userinfo, and homograph evasions neutralized by Gates 3, 4, 9, 10 | **DAST (Browser Regression)** & **Unit Tests** | `tests/e2e/redirect.spec.ts` asserts origin containment; `validateRedirect.test.ts` asserts fallback safety. |
+| **Denial of Service (ReDoS)** | Pre-parser anomaly checks use linear scans without catastrophic backtracking                    | **SAST (Static Analysis)**                     | `eslint-plugin-security` (`security/detect-unsafe-regex`) scans ASTs for nested quantifiers.                 |
+| **Supply-Chain Compromise**   | Malicious or vulnerable packages introducing backdoors or insecure dependencies                 | **SCA (Composition Analysis)**                 | `npm audit --audit-level=high` validates dependency graphs against GitHub Advisory Database.                 |
+| **Information Disclosure**    | Unapproved destinations stripped; query params/hashes contained on trusted origin               | **DAST (Browser Regression)**                  | Playwright asserts safe fallback `/dashboard` display and origin preservation in live DOM.                   |
+| **Elevation of Privilege**    | Rejection of pseudo-schemes (`javascript:`, `data:`) preventing DOM-based XSS                   | **Unit Tests** & **SAST**                      | `validateRedirect.test.ts` asserts scheme rejections; ESLint flags dynamic script execution.                 |

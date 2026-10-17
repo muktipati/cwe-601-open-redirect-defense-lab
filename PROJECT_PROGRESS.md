@@ -435,3 +435,36 @@ Conducted an independent Senior Application Security Engineer & QA Automation au
 | **Dependency Audit (SCA)**    | `npm audit --audit-level=high`    | Third-party supply chain packages                      | **0 Vulnerabilities**       |
 | **Type Check & Build**        | TypeScript (`tsc -b`) + Vite      | Strict types, production bundling                      | **0 Type Errors, Build OK** |
 | **Code Formatting**           | Prettier                          | Repository-wide style conformance                      | **100% Conforming**         |
+
+---
+
+## 14. Educational Documentation Improvement Record (SAST, SCA, and DAST)
+
+### Objective
+
+Expanded the security documentation in `README.md` and `THREAT_MODEL.md` to transform brief tool references into a comprehensive educational guide for React and TypeScript engineers learning Application Security and DevSecOps.
+
+### Completed Improvements
+
+1. **SAST Deep Dive**:
+   - Explained static analysis vs. runtime execution; AST parsing mechanics.
+   - Documented `eslint.config.js` and `eslint-plugin-security` rules (`detect-unsafe-regex`, `detect-object-injection`, `detect-non-literal-regexp`, `detect-eval-with-expression`, `detect-possible-timing-attacks`).
+   - Provided instructions on investigating findings, triaging false positives, and applying scoped local suppressions.
+   - Stated clearly that ESLint security rules are an AST pattern linter, not a comprehensive semantic scanner.
+2. **SCA Deep Dive**:
+   - Detailed direct vs. transitive dependency graphs and CVE supply chain risk.
+   - Contrasted `npm audit` dependency registry scanning with source code analysis.
+   - Documented exact commands (`npm run audit:sca`), `--audit-level=high` severity threshold, exit codes, and safe triage.
+   - Included strict warning against `npm audit fix --force` breaking upgrades.
+   - Clarified that zero audit findings do not guarantee zero risk or immunity from zero-days.
+3. **DAST Deep Dive**:
+   - Explained dynamic testing principles against running applications.
+   - Detailed Playwright configuration (`playwright.config.ts`, Chromium & Mobile Pixel 5 viewports) and commands (`npm run test:e2e`).
+   - Highlighted representative test (`redirect.spec.ts`) asserting origin containment (`expect(page.url()).toBe(currentUrl)`).
+   - Distinguished scripted browser regressions from automated DAST scanners (OWASP ZAP, Burp Suite) and penetration tests.
+4. **Discipline Comparison Matrix**:
+   - Authored multi-dimensional matrix contrasting SAST, SCA, DAST, Unit Tests, Type Checking, Code Quality Linting, Formatting, and Manual Security Review.
+5. **DevSecOps Pipeline Workflow**:
+   - Mapped out multi-stage defense-in-depth pipeline from local developer workstation to PR CI stages and pre-production.
+6. **Threat Model Countermeasure Verification Matrix**:
+   - Added Section 8 in `THREAT_MODEL.md` mapping STRIDE threats to automated verification tools.
