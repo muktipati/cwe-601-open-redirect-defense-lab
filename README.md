@@ -3,15 +3,15 @@
 [![Node.js](https://img.shields.io/badge/Node.js-v20.20_LTS-green.svg)](https://nodejs.org/)
 [![React](https://img.shields.io/badge/React-v19.2-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict_v6-blue.svg)](https://www.typescriptlang.org/)
-[![Vitest](https://img.shields.io/badge/Vitest-67%2F67_Passed-brightgreen.svg)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/Vitest-91%2F91_Passed-brightgreen.svg)](https://vitest.dev/)
 [![Playwright](https://img.shields.io/badge/Playwright_E2E-10%2F10_Passed-brightgreen.svg)](https://playwright.dev/)
 [![Security SAST](https://img.shields.io/badge/ESLint_Security-0_Warnings-brightgreen.svg)](https://github.com/eslint-community/eslint-plugin-security)
 [![Security SCA](https://img.shields.io/badge/npm_audit-0_Vulnerabilities-brightgreen.svg)](https://docs.npmjs.com/cli/commands/npm-audit)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An educational, interactive Application Security laboratory and production-grade defense engine demonstrating **CWE-601: URL Redirection to Untrusted Site ('Open Redirect')**.
+An educational, interactive Application Security laboratory and hardened reference defense engine demonstrating **CWE-601: URL Redirection to Untrusted Site ('Open Redirect')**.
 
-This repository models common developer logic flaws side-by-side with a battle-tested **11-gate defense pipeline**, complete with real-time payload evaluation, sandboxed browser navigation simulations, and automated end-to-end security assertions.
+This repository models common developer logic flaws side-by-side with a comprehensive **11-gate defense pipeline**, complete with real-time payload evaluation, sandboxed browser navigation simulations, and automated end-to-end security assertions.
 
 ---
 
@@ -64,7 +64,7 @@ Valid internal application destinations matching the approved route allowlist ar
 Rather than relying on naive regex patterns or string matching, the secure validator (`validateRedirect.ts`) enforces defense-in-depth across 11 sequential gates:
 
 ```
-[Untrusted Input] ──► Gate 1: Null / Empty Validation
+[Untrusted Input] ──► Gate 1: Null, Undefined, & Non-String Runtime Type Guard
                  ──► Gate 2: Control Characters & CRLF Guard (%0a, %0d, \r, \n)
                  ──► Gate 3: Backslash Evasion Guard (\, %5c)
                  ──► Gate 4: Protocol-Relative URI Guard (//, /\, \/)
@@ -74,7 +74,7 @@ Rather than relying on naive regex patterns or string matching, the secure valid
                  ──► Gate 8: Allowed Protocol Scheme Guard (https:, http:)
                  ──► Gate 9: Userinfo Credential Prohibition (username, password)
                  ──► Gate 10: Strict Origin Matching (auth.mybank.com)
-                 ──► Gate 11: Route Allowlist Verification (/dashboard, /settings, etc.)
+                 ──► Gate 11: Route Allowlist Verification & Path Canonicalization
                  ──► [Safe Sanitized Destination Approved]
 
 * Failure at ANY gate immediately triggers safe fallback to /dashboard with isValid: false
@@ -97,11 +97,11 @@ For the complete STRIDE analysis, parser differential breakdown, and threat acto
 
 ## DevSecOps Tooling
 
-This project integrates standard DevSecOps automation:
+This project integrates standard automated security tooling across the software lifecycle:
 
-1. **SAST (Static Application Security Testing)**: `eslint-plugin-security` integrated with ESLint v10 to inspect ASTs for ReDoS, unsafe object injection, and regex flaws.
-2. **DAST (Dynamic Application Security Testing)**: Playwright end-to-end browser tests asserting runtime security invariants across Desktop Chrome and Mobile Pixel 5 viewports.
-3. **SCA (Software Composition Analysis)**: Automated dependency auditing with `npm audit --audit-level=high` (0 known vulnerabilities).
+1. **SAST (Static Application Security Testing)**: Source code static analysis using `eslint-plugin-security` integrated with ESLint v10 to inspect ASTs for ReDoS, unsafe object injection, and regex flaws at build and lint time without executing the application.
+2. **DAST (Dynamic Application Security Testing)**: Automated dynamic runtime testing via Playwright end-to-end browser automation, asserting that real user interactions, modal transitions, and redirection attempts in Chromium and Mobile WebKit never trigger unauthorized outbound navigation away from the application origin.
+3. **SCA (Software Composition Analysis)**: Automated dependency auditing via `npm audit --audit-level=high` to detect known CVEs in third-party supply chain dependencies (distinct from static source code scanning).
 
 ---
 
@@ -166,16 +166,16 @@ Navigate to `http://localhost:5173/` in your browser.
 
 ## Test & Security Commands
 
-| Command                  | Purpose                                            | Verification Output                |
-| :----------------------- | :------------------------------------------------- | :--------------------------------- |
-| `npm test`               | Runs 67 unit and integration tests via Vitest      | **67 / 67 Passed (< 1.1s)**        |
-| `npm run test:e2e`       | Runs Playwright headless browser tests             | **10 / 10 Passed (15.4s)**         |
-| `npm run test:e2e:demo`  | Runs Playwright with visible browser & slow-motion | **Interactive human demo**         |
-| `npm run test:e2e:ui`    | Opens Playwright Interactive UI Dashboard          | **Time-travel debugger**           |
-| `npm run security:check` | Runs SCA (`npm audit`) and SAST (`eslint`)         | **0 Vulnerabilities / 0 Warnings** |
-| `npm run lint`           | ESLint static analysis across all TypeScript files | **0 Errors, 0 Warnings**           |
-| `npm run format:check`   | Checks code formatting with Prettier               | **100% Conforming**                |
-| `npm run build`          | Strict TypeScript check (`tsc -b`) & Vite build    | **0 Errors (108ms)**               |
+| Command                  | Purpose                                               | Verification Output                |
+| :----------------------- | :---------------------------------------------------- | :--------------------------------- |
+| `npm test`               | Runs 91 unit and integration tests via Vitest         | **91 / 91 Passed (< 1.1s)**        |
+| `npm run test:e2e`       | Runs Playwright browser tests across desktop & mobile | **10 / 10 Passed (16.2s)**         |
+| `npm run test:e2e:demo`  | Runs Playwright with visible browser & slow-motion    | **Interactive human demo**         |
+| `npm run test:e2e:ui`    | Opens Playwright Interactive UI Dashboard             | **Time-travel debugger**           |
+| `npm run security:check` | Runs SCA (`npm audit`) and SAST (`eslint`)            | **0 Vulnerabilities / 0 Warnings** |
+| `npm run lint`           | ESLint static analysis across all TypeScript files    | **0 Errors, 0 Warnings**           |
+| `npm run format:check`   | Checks code formatting with Prettier                  | **100% Conforming**                |
+| `npm run build`          | Strict TypeScript check (`tsc -b`) & Vite build       | **0 Errors (105ms)**               |
 
 ---
 

@@ -95,5 +95,32 @@ describe("URL Normalization & Anomaly Detection Utilities", () => {
       expect(sanitizeInputString("\t/dashboard\t\n")).toBe("/dashboard");
       expect(sanitizeInputString("\u200B/dashboard\uFEFF")).toBe("/dashboard");
     });
+
+    it("safely handles non-string inputs without throwing", () => {
+      expect(sanitizeInputString(null)).toBe("");
+      expect(sanitizeInputString(undefined)).toBe("");
+      expect(sanitizeInputString(12345)).toBe("");
+      expect(sanitizeInputString({})).toBe("");
+      expect(sanitizeInputString([])).toBe("");
+    });
+  });
+
+  describe("Runtime Non-String Resilience across Anomaly Detectors", () => {
+    it("fails closed on non-string inputs across all security detectors without throwing", () => {
+      const nonStringValues = [null, undefined, 123, true, {}, []];
+
+      for (const val of nonStringValues) {
+        expect(() => hasControlOrCrlfChars(val)).not.toThrow();
+        expect(() => hasBackslashEvasion(val)).not.toThrow();
+        expect(() => isProtocolRelative(val)).not.toThrow();
+        expect(() => hasPathTraversal(val)).not.toThrow();
+
+        // Security guards fail closed (true) when given unexpected non-string types
+        expect(hasControlOrCrlfChars(val)).toBe(true);
+        expect(hasBackslashEvasion(val)).toBe(true);
+        expect(isProtocolRelative(val)).toBe(true);
+        expect(hasPathTraversal(val)).toBe(true);
+      }
+    });
   });
 });

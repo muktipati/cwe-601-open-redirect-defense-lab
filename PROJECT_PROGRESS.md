@@ -362,5 +362,76 @@
 
 ### Project Status
 
-- **ALL 11 PHASES FULLY COMPLETED WITH USER APPROVAL**.
-- Ready for remote push to `https://github.com/muktipati/<repository-name>.git`.
+- **Initial Development Phases 1-11 Complete**.
+- **AppSec Review & Hardening Remediation Complete (See Section 13)**.
+
+---
+
+## 13. AppSec Review Remediation Record (CWE-601 Hardening & Independent QA)
+
+### Remediation Objectives & Scope
+
+Conducted an independent Senior Application Security Engineer & QA Automation audit across the repository (`cwe-601-open-redirect-defense-lab`) executing five strict sequential phases with explicit approval gates.
+
+### Summary of Completed Remediation Phases
+
+#### Phase 1: Inspect and Report
+
+1. Inspected Git status and branch configuration (`main`, clean tree).
+2. Audited `validateRedirect.ts`, `normalizeUrl.ts`, `allowedRoutes.ts`, `types.ts`, unit/integration tests, Playwright tests, and architecture documentation.
+3. Identified and reported 5 confirmed technical issues without modifying files:
+   - Non-string runtime input crash risk (`typeof untrustedInput !== 'string'`).
+   - Expected origin string mismatch (WHATWG origin parser vs raw origin configuration with trailing slashes or mixed case).
+   - Unvalidated fallback route parameter risk.
+   - Discrepancy between validated canonical path and raw returned destination.
+   - Implicit subpath policy lacking explicit slash boundary guarantees.
+
+#### Phase 2: Harden Input and Configuration
+
+1. **Runtime Type Guards**: Updated `validateRedirect.ts` to accept `unknown`, rejecting non-string inputs with `INVALID_INPUT_TYPE` and falling back safely. Updated `normalizeUrl.ts` helpers to accept `unknown` without throwing `TypeError`.
+2. **Origin Configuration Hardening (`normalizeExpectedOrigin`)**: Lowercases scheme and host, strips trailing slashes, enforces `https:` or `http:`, and rejects malformed origin configurations with `INVALID_CONFIG`.
+3. **Fallback Route Sanitization (`getSafeFallbackRoute`)**: Guarantees fallback destinations are internal paths strictly present on `allowedRoutes`, rejecting traversal sequences, CRLF, backslashes, and `%2f`, falling back closed to `/dashboard`.
+4. **Regressions Added**: Added 11 unit tests across `validateRedirect.test.ts`, `allowedRoutes.test.ts`, and `normalizeUrl.test.ts` (78 tests passing).
+
+#### Phase 3: Canonicalization and Route Policy
+
+1. **Path Canonicalization (`canonicalizePathname`)**: Collapses multiple slashes (`///dashboard///` -> `/dashboard`), strips trailing slashes (preserving `/`), ensures leading slash, and returns safe `/` on invalid inputs.
+2. **Consistent Destination Output**: Constructed `sanitizedDestination` using `${canonicalPath}${parsedUrl.search}${parsedUrl.hash}`, ensuring the path returned matches the canonical path validated against the allowlist.
+3. **Encoded Path Separators**: Explicitly rejects encoded separators (`/%2f/i`) with `UNAPPROVED_ROUTE`.
+4. **Configurable Subpath Policy**: Added `allowSubpaths?: boolean` (defaults to `true`). When true, enforces clean slash boundaries (`canonicalPath.startsWith("${canonicalRoute}/")`). When false, restricts matching strictly to exact canonical routes.
+5. **Root Route Policy**: Enforced that the root route `"/"` is strictly exact-match only and never permits arbitrary subpaths.
+6. **Regressions Added**: Added 13 unit tests verifying canonicalization, root route protection, and subpath configuration (91 tests passing).
+
+#### Phase 4: Independent Regression Testing
+
+1. **Zero Weakened Tests**: Verified existing test assertions remained intact (0 changes to `tests/e2e/redirect.spec.ts`).
+2. **Simulation Safety**: Verified the vulnerable simulation engine executes strictly in-memory and never navigates away from the application origin (`expect(page.url()).toBe(currentUrl)`).
+3. **Playwright E2E Suite**: Ran 10 browser tests across Desktop Chrome and Mobile Chrome (Pixel 5) with 100% passing (16.2s).
+4. **Full Pipeline Verification**:
+   - `npm test`: **91 / 91 Passed** across 7 test files (< 1.1s).
+   - `npm run test:e2e`: **10 / 10 Passed** across desktop and mobile.
+   - `npm run build`: **0 Errors** (105ms production bundle).
+   - `npm run lint`: **0 Errors, 0 Warnings** (ESLint v10 + `eslint-plugin-security`).
+   - `npm run format:check`: **100% Conforming** (Prettier).
+   - `npm audit`: **0 Vulnerabilities found**.
+
+#### Phase 5: Documentation, Claim Hygiene, and Audit Record
+
+1. **Claim Hygiene**: Removed unsupported claims ("battle-tested", "production-grade") from `README.md` and `THREAT_MODEL.md`.
+2. **DevSecOps Terminology Accuracy**:
+   - Clearly defined **SAST** as static source code AST analysis (`eslint-plugin-security`).
+   - Clearly defined **DAST** as dynamic runtime browser interaction and navigation containment testing (Playwright).
+   - Clearly defined **SCA** as software composition analysis and dependency vulnerability auditing (`npm audit`), distinguished from static code scanning.
+3. **Audit Trail**: Updated `PROJECT_PROGRESS.md` with complete remediation history.
+4. **Git Diff Audit**: Verified that all repository edits are strictly confined to approved security remediation files.
+
+### Final Verification Table
+
+| Security Check / Verification | Tool / Framework                  | Scope                                                  | Result                      |
+| :---------------------------- | :-------------------------------- | :----------------------------------------------------- | :-------------------------- |
+| **Unit & Integration Tests**  | Vitest                            | Defensive validator, normalization, allowed routes, UI | **91 / 91 Passed**          |
+| **Dynamic E2E Tests (DAST)**  | Playwright                        | Multi-device browser navigation containment            | **10 / 10 Passed**          |
+| **Static Analysis (SAST)**    | ESLint + `eslint-plugin-security` | Source code AST vulnerability scan                     | **0 Errors, 0 Warnings**    |
+| **Dependency Audit (SCA)**    | `npm audit --audit-level=high`    | Third-party supply chain packages                      | **0 Vulnerabilities**       |
+| **Type Check & Build**        | TypeScript (`tsc -b`) + Vite      | Strict types, production bundling                      | **0 Type Errors, Build OK** |
+| **Code Formatting**           | Prettier                          | Repository-wide style conformance                      | **100% Conforming**         |

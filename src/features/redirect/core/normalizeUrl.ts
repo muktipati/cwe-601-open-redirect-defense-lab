@@ -18,7 +18,10 @@ const PATH_TRAVERSAL_REGEX = /(?:^|\/|\\)(?:\.\.|%2e%2e)(?:$|\/|\\)/i;
  * Checks whether an input contains ASCII control characters (0x00-0x1F, 0x7F)
  * or CRLF injection payloads (%0a, %0d, \r, \n).
  */
-export function hasControlOrCrlfChars(input: string): boolean {
+export function hasControlOrCrlfChars(input: unknown): boolean {
+  if (typeof input !== "string") {
+    return true; // Fail closed if non-string payload passed to character inspector
+  }
   if (CRLF_ENCODED_REGEX.test(input)) {
     return true;
   }
@@ -36,27 +39,40 @@ export function hasControlOrCrlfChars(input: string): boolean {
  * In WHATWG URL parsing, backslashes are often normalized to forward slashes,
  * creating discrepancies between string-matching validators and browser navigation.
  */
-export function hasBackslashEvasion(input: string): boolean {
+export function hasBackslashEvasion(input: unknown): boolean {
+  if (typeof input !== "string") {
+    return true; // Fail closed on malformed types
+  }
   return BACKSLASH_REGEX.test(input);
 }
 
 /**
  * Checks whether an input attempts a protocol-relative external redirect (e.g. //evil.com).
  */
-export function isProtocolRelative(input: string): boolean {
+export function isProtocolRelative(input: unknown): boolean {
+  if (typeof input !== "string") {
+    return true; // Fail closed on malformed types
+  }
   return PROTOCOL_RELATIVE_REGEX.test(input.trim());
 }
 
 /**
  * Checks whether a path contains path traversal tokens (../ or %2e%2e).
  */
-export function hasPathTraversal(input: string): boolean {
+export function hasPathTraversal(input: unknown): boolean {
+  if (typeof input !== "string") {
+    return true; // Fail closed on malformed types
+  }
   return PATH_TRAVERSAL_REGEX.test(input);
 }
 
 /**
  * Pre-sanitizes untrusted input by trimming whitespace.
+ * Returns an empty string if input is null, undefined, or not a string.
  */
-export function sanitizeInputString(input: string): string {
+export function sanitizeInputString(input: unknown): string {
+  if (typeof input !== "string") {
+    return "";
+  }
   return input.trim().replace(/^[\s\u200B-\u200D\uFEFF]+|[\s\u200B-\u200D\uFEFF]+$/g, "");
 }

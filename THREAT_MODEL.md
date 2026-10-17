@@ -2,7 +2,7 @@
 
 ## 1. System Overview & Scope
 
-This document defines the formal threat model for the **Application Security Open Redirect Defense Lab**. It models how untrusted destination parameters (such as `?next=`, `?redirect_uri=`, and `?returnUrl=`) are exploited in modern web applications and specifies the technical countermeasures required to achieve defensible, production-grade security.
+This document defines the formal threat model for the **Application Security Open Redirect Defense Lab**. It models how untrusted destination parameters (such as `?next=`, `?redirect_uri=`, and `?returnUrl=`) are exploited in modern web applications and specifies the technical countermeasures required to achieve defensible, robust security.
 
 - **Vulnerability Classification**: [CWE-601: URL Redirection to Untrusted Site ('Open Redirect')](https://cwe.mitre.org/data/definitions/601.html)
 - **CAPEC Mapping**: [CAPEC-267: Leverage Web Applications with Untrusted Redirections](https://capec.mitre.org/data/definitions/267.html)
@@ -104,37 +104,37 @@ URL parsing is notoriously inconsistent across different specifications, browser
 [Untrusted Input]
        │
        ▼
-[Gate 1: Null/Empty Validation] ───────────► (Rejection -> /dashboard)
+[Gate 1: Null, Undefined, & Non-String Runtime Guard] ──► (Rejection -> /dashboard)
        │
        ▼
-[Gate 2: CRLF & Control Character Guard] ──► (Rejection -> /dashboard)
+[Gate 2: CRLF & Control Character Guard] ───────────────► (Rejection -> /dashboard)
        │
        ▼
-[Gate 3: Backslash Evasion Guard] ─────────► (Rejection -> /dashboard)
+[Gate 3: Backslash Evasion Guard] ──────────────────────► (Rejection -> /dashboard)
        │
        ▼
-[Gate 4: Protocol-Relative Guard (//)] ────► (Rejection -> /dashboard)
+[Gate 4: Protocol-Relative Guard (//)] ─────────────────► (Rejection -> /dashboard)
        │
        ▼
-[Gate 5: Dangerous Pseudo-Scheme Guard] ───► (Rejection -> /dashboard)
+[Gate 5: Dangerous Pseudo-Scheme Guard] ────────────────► (Rejection -> /dashboard)
        │
        ▼
-[Gate 6: Path Traversal Segment Guard] ────► (Rejection -> /dashboard)
+[Gate 6: Path Traversal Segment Guard] ─────────────────► (Rejection -> /dashboard)
        │
        ▼
-[Gate 7: WHATWG Standard URL Parser] ──────► (Rejection -> /dashboard)
+[Gate 7: WHATWG Standard URL Parser] ───────────────────► (Rejection -> /dashboard)
        │
        ▼
-[Gate 8: Allowed Protocol Scheme Guard] ───► (Rejection -> /dashboard)
+[Gate 8: Allowed Protocol Scheme Guard] ────────────────► (Rejection -> /dashboard)
        │
        ▼
-[Gate 9: Userinfo Credential Prohibition] ─► (Rejection -> /dashboard)
+[Gate 9: Userinfo Credential Prohibition] ──────────────► (Rejection -> /dashboard)
        │
        ▼
-[Gate 10: Strict Origin Matching] ─────────► (Rejection -> /dashboard)
+[Gate 10: Strict Origin Matching] ──────────────────────► (Rejection -> /dashboard)
        │
        ▼
-[Gate 11: Route Allowlist Verification] ───► (Rejection -> /dashboard)
+[Gate 11: Route Allowlist Verification & Canonicalization] ► (Rejection -> /dashboard)
        │
        ▼
 [Safe Internal Destination Approved]
@@ -151,3 +151,7 @@ URL parsing is notoriously inconsistent across different specifications, browser
    - The security of Gate 11 relies on the integrity of approved destinations. If an approved route (such as `/reports`) itself contains an unhandled XSS or secondary redirect flaw, an attacker could chain vulnerabilities.
 3. **No Dynamic Wildcards**:
    - Wildcard domain allowlists (e.g. `*.mybank.com`) are deliberately prohibited in this architecture because subdomains with user-generated content (e.g. `user-blogs.mybank.com`) can be weaponized.
+4. **Fallback Route Integrity**:
+   - Fallback destinations must fail closed to verified internal paths on the allowlist, sanitized of path traversal (`..`), CRLF injection, backslashes, and encoded path separators (`%2f`).
+5. **Canonical Path Parity**:
+   - The internal destination passed to the application router must strictly match the canonical path evaluated against the allowlist, preventing discrepancies where uncanonical paths (such as `/dashboard//`) are validated but returned verbatim.

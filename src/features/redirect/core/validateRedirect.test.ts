@@ -211,4 +211,163 @@ describe("Secure Redirect Validation Engine (CWE-601 Defense)", () => {
       expect(result.sanitizedDestination).toBe(DEFAULT_SAFE_FALLBACK);
     });
   });
+
+  describe("Phase 2 Hardening: Input Type & Configuration Resilience", () => {
+    it("fails closed without throwing when receiving non-string inputs at runtime", () => {
+      const nonStringInputs = [
+        12345,
+        true,
+        false,
+        {},
+        { url: "/dashboard" },
+        ["/dashboard"],
+        () => "/dashboard",
+        Symbol("url"),
+      ];
+
+      for (const input of nonStringInputs) {
+        expect(() => {
+          const result = validateRedirect(input as unknown as string);
+          expect(result.isValid).toBe(false);
+          expect(result.rejectionCode).toBe("INVALID_INPUT_TYPE");
+          expect(result.sanitizedDestination).toBe(DEFAULT_SAFE_FALLBACK);
+          expect(result.targetType).toBe("SAFE_FALLBACK");
+        }).not.toThrow();
+      }
+    });
+
+    it("normalizes expectedOrigin with trailing slashes or mixed case", () => {
+      // Trailing slash in expectedOrigin
+      const trailingSlashResult = validateRedirect("/dashboard", {
+        expectedOrigin: "https://auth.mybank.com/",
+      });
+      expect(trailingSlashResult.isValid).toBe(true);
+      expect(trailingSlashResult.sanitizedDestination).toBe("/dashboard");
+
+      // Mixed case in expectedOrigin
+      const mixedCaseResult = validateRedirect("/dashboard", {
+        expectedOrigin: "https://AUTH.MYBANK.COM",
+      });
+      expect(mixedCaseResult.isValid).toBe(true);
+      expect(mixedCaseResult.sanitizedDestination).toBe("/dashboard");
+    });
+
+    it("fails closed safely when expectedOrigin is malformed or unapproved protocol", () => {
+      const malformedOrigins = ["not-a-url", "ftp://ftp.mybank.com", "javascript:void(0)", ""];
+
+      for (const origin of malformedOrigins) {
+        const result = validateRedirect("/dashboard", { expectedOrigin: origin });
+        expect(result.isValid).toBe(false);
+        expect(result.rejectionCode).toBe("INVALID_CONFIG");
+        expect(result.sanitizedDestination).toBe(DEFAULT_SAFE_FALLBACK);
+      }
+    });
+
+    it("neutralizes unsafe or external fallbackRoute configurations to DEFAULT_SAFE_FALLBACK", () => {
+      // External URL as fallback
+      const externalFallback = validateRedirect("/unapproved", {
+        fallbackRoute: "https://evil.com/phish",
+      });
+      expect(externalFallback.isValid).toBe(false);
+      expect(externalFallback.sanitizedDestination).toBe(DEFAULT_SAFE_FALLBACK);
+
+      // Protocol-relative fallback
+      const protoRelFallback = validateRedirect("/unapproved", {
+        fallbackRoute: "//evil.com",
+      });
+      expect(protoRelFallback.isValid).toBe(false);
+      expect(protoRelFallback.sanitizedDestination).toBe(DEFAULT_SAFE_FALLBACK);
+
+      // Path traversal or control characters in fallback
+      const traversalFallback = validateRedirect("/unapproved", {
+        fallbackRoute: "/dashboard/../secret",
+      });
+      expect(traversalFallback.isValid).toBe(false);
+      expect(traversalFallback.sanitizedDestination).toBe(DEFAULT_SAFE_FALLBACK);
+
+      // Unapproved route as fallback
+      const unapprovedFallback = validateRedirect("/unapproved", {
+        fallbackRoute: "/unapproved-admin-route",
+      });
+      expect(unapprovedFallback.isValid).toBe(false);
+      expect(unapprovedFallback.sanitizedDestination).toBe(DEFAULT_SAFE_FALLBACK);
+    });
+
+    it("accepts a safe custom fallbackRoute that exists on the route allowlist", () => {
+      const validCustomFallback = validateRedirect("/unapproved", {
+        fallbackRoute: "/profile",
+      });
+      expect(validCustomFallback.isValid).toBe(false);
+      expect(validCustomFallback.sanitizedDestination).toBe("/profile");
+    });
+  });
+
+  describe("Phase 3 Remediation: Canonicalization and Route Policy", () => {
+    it("canonicalizes duplicate and trailing slashes to match validated destination", () => {
+      const duplicateSlash = validateRedirect("/dashboard//");
+      expect(duplicateSlash.isValid).toBe(true);
+      expect(duplicateSlash.sanitizedDestination).toBe("/dashboard");
+
+      const queryHashCanonical = validateRedirect("/dashboard///?view=summary#chart");
+      expect(queryHashCanonical.isValid).toBe(true);
+      expect(queryHashCanonical.sanitizedDestination).toBe("/dashboard?view=summary#chart");
+
+      const nestedTrailing = validateRedirect("/settings/security/");
+      expect(nestedTrailing.isValid).toBe(true);
+      expect(nestedTrailing.sanitizedDestination).toBe("/settings/security");
+    });
+
+    it("canonicalizes trusted absolute URLs so output path matches validated canonical form", () => {
+      const absoluteResult = validateRedirect(`${DEFAULT_EXPECTED_ORIGIN}/dashboard//`);
+      expect(absoluteResult.isValid).toBe(true);
+      expect(absoluteResult.sanitizedDestination).toBe(`${DEFAULT_EXPECTED_ORIGIN}/dashboard`);
+    });
+
+    it("rejects encoded path separators (%2f / %2F) to prevent canonicalization bypasses", () => {
+      const encodedSlash = validateRedirect("/dashboard%2foverview");
+      expect(encodedSlash.isValid).toBe(false);
+      expect(encodedSlash.rejectionCode).toBe("UNAPPROVED_ROUTE");
+      expect(encodedSlash.sanitizedDestination).toBe(DEFAULT_SAFE_FALLBACK);
+
+      const upperEncoded = validateRedirect("/dashboard%2F..%2Fsecret");
+      expect(upperEncoded.isValid).toBe(false);
+      expect(upperEncoded.sanitizedDestination).toBe(DEFAULT_SAFE_FALLBACK);
+    });
+
+    it("enforces configurable allowSubpaths policy", () => {
+      // By default, subpaths of approved prefixes are allowed
+      const defaultSubpath = validateRedirect("/dashboard/subview");
+      expect(defaultSubpath.isValid).toBe(true);
+      expect(defaultSubpath.sanitizedDestination).toBe("/dashboard/subview");
+
+      // When allowSubpaths is false, subpaths of approved prefixes are rejected
+      const restrictedSubpath = validateRedirect("/dashboard/subview", {
+        allowSubpaths: false,
+      });
+      expect(restrictedSubpath.isValid).toBe(false);
+      expect(restrictedSubpath.rejectionCode).toBe("UNAPPROVED_ROUTE");
+      expect(restrictedSubpath.sanitizedDestination).toBe(DEFAULT_SAFE_FALLBACK);
+
+      // Exact match still allowed when allowSubpaths is false
+      const exactMatch = validateRedirect("/dashboard", {
+        allowSubpaths: false,
+      });
+      expect(exactMatch.isValid).toBe(true);
+      expect(exactMatch.sanitizedDestination).toBe("/dashboard");
+    });
+
+    it("ensures root route '/' does not permit arbitrary subpath routing", () => {
+      const rootMatch = validateRedirect("/");
+      expect(rootMatch.isValid).toBe(true);
+      expect(rootMatch.sanitizedDestination).toBe("/");
+
+      // Even if only '/' is allowed, unintended routes must never match
+      const unapprovedUnderRoot = validateRedirect("/admin", {
+        allowedRoutes: ["/"],
+      });
+      expect(unapprovedUnderRoot.isValid).toBe(false);
+      expect(unapprovedUnderRoot.rejectionCode).toBe("UNAPPROVED_ROUTE");
+      expect(unapprovedUnderRoot.sanitizedDestination).toBe(DEFAULT_SAFE_FALLBACK);
+    });
+  });
 });

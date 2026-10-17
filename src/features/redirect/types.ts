@@ -42,6 +42,8 @@ export interface VulnerableSimulationResult {
 
 export type RejectionReasonCode =
   | "EMPTY_INPUT"
+  | "INVALID_INPUT_TYPE"
+  | "INVALID_CONFIG"
   | "CONTROL_CHARS_OR_CRLF"
   | "DANGEROUS_SCHEME"
   | "PROTOCOL_RELATIVE_ATTEMPT"
@@ -58,6 +60,14 @@ export interface RedirectValidationConfig {
   readonly fallbackRoute: string;
   readonly allowedSchemes: readonly string[];
   readonly allowExternalTrustedOrigins?: readonly string[];
+  /**
+   * Explicit route policy: whether subpaths of approved route prefixes are permitted.
+   * If true, '/dashboard/overview' is permitted when '/dashboard' is in allowedRoutes.
+   * If false, only exact matches against allowedRoutes are permitted.
+   * Note: The root route '/' is always exact-match only and never permits arbitrary subpaths.
+   * Default: true
+   */
+  readonly allowSubpaths?: boolean;
 }
 
 export interface SecureRedirectResult {

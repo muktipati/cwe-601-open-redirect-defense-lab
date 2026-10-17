@@ -7,7 +7,13 @@
  */
 
 import type { RedirectValidationConfig, SecureRedirectResult } from "../types";
-import { DEFAULT_REDIRECT_CONFIG, isRouteAllowed } from "../config/allowedRoutes";
+import {
+  DEFAULT_REDIRECT_CONFIG,
+  canonicalizePathname,
+  getSafeFallbackRoute,
+  isRouteAllowed,
+  normalizeExpectedOrigin,
+} from "../config/allowedRoutes";
 import {
   hasBackslashEvasion,
   hasControlOrCrlfChars,
@@ -25,35 +31,82 @@ const DANGEROUS_SCHEMES_REGEX = /^(?:javascript|data|vbscript|file|blob|about):/
  * Guaranteed Behavior:
  * - Returns `isValid: true` ONLY when the input satisfies all security checks.
  * - Always provides `sanitizedDestination`. If validation fails, `sanitizedDestination`
- *   is guaranteed to be the safe configured fallback route (e.g. '/dashboard').
- * - Under no circumstances will an untrusted external origin or dangerous scheme
- *   be returned as a valid destination.
+ *   is guaranteed to be a verified safe fallback route (e.g. '/dashboard').
+ * - Under no circumstances will an untrusted external origin, unapproved scheme,
+ *   or malformed input type be returned as a valid destination.
  *
  * @param untrustedInput The raw parameter received from the user (e.g. query param ?next=...)
  * @param customConfig Optional override of validation rules
  * @returns Complete audit trail and sanitized redirection destination
  */
 export function validateRedirect(
-  untrustedInput: string | null | undefined,
+  untrustedInput: unknown,
   customConfig?: Partial<RedirectValidationConfig>
 ): SecureRedirectResult {
-  const config: RedirectValidationConfig = {
-    ...DEFAULT_REDIRECT_CONFIG,
-    ...customConfig,
-  };
+  const allowedRoutes = customConfig?.allowedRoutes ?? DEFAULT_REDIRECT_CONFIG.allowedRoutes;
+  const allowSubpaths =
+    customConfig?.allowSubpaths ?? DEFAULT_REDIRECT_CONFIG.allowSubpaths ?? true;
+  const safeFallback = getSafeFallbackRoute(
+    customConfig?.fallbackRoute ?? DEFAULT_REDIRECT_CONFIG.fallbackRoute,
+    allowedRoutes
+  );
+
+  const rawExpectedOrigin = customConfig?.expectedOrigin ?? DEFAULT_REDIRECT_CONFIG.expectedOrigin;
+  const normalizedExpectedOrigin = normalizeExpectedOrigin(rawExpectedOrigin);
+
+  const allowedSchemes = customConfig?.allowedSchemes ?? DEFAULT_REDIRECT_CONFIG.allowedSchemes;
+
+  const normalizedExternalOrigins = (
+    customConfig?.allowExternalTrustedOrigins ??
+    DEFAULT_REDIRECT_CONFIG.allowExternalTrustedOrigins ??
+    []
+  )
+    .map(normalizeExpectedOrigin)
+    .filter((o): o is string => Boolean(o));
 
   const checksPassed: string[] = [];
 
-  // Check 1: Null, undefined, or empty string validation
-  if (!untrustedInput) {
+  // Configuration sanity guard: expected origin must be a valid HTTP(S) origin
+  if (!normalizedExpectedOrigin) {
     return {
       isValid: false,
-      sanitizedDestination: config.fallbackRoute,
+      sanitizedDestination: safeFallback,
+      targetType: "SAFE_FALLBACK",
+      rejectionCode: "INVALID_CONFIG",
+      rejectionMessage: "Configured expected origin is invalid or malformed.",
+      auditDetails: {
+        originalInput:
+          typeof untrustedInput === "string" ? untrustedInput : String(untrustedInput ?? ""),
+        checksPassed,
+      },
+    };
+  }
+
+  // Check 1A: Null or undefined validation
+  if (untrustedInput === null || untrustedInput === undefined) {
+    return {
+      isValid: false,
+      sanitizedDestination: safeFallback,
       targetType: "SAFE_FALLBACK",
       rejectionCode: "EMPTY_INPUT",
       rejectionMessage: "Input destination is empty or null. Reverting to safe fallback.",
       auditDetails: {
-        originalInput: untrustedInput ?? "",
+        originalInput: "",
+        checksPassed,
+      },
+    };
+  }
+
+  // Check 1B: Runtime type validation (must be string)
+  if (typeof untrustedInput !== "string") {
+    return {
+      isValid: false,
+      sanitizedDestination: safeFallback,
+      targetType: "SAFE_FALLBACK",
+      rejectionCode: "INVALID_INPUT_TYPE",
+      rejectionMessage: "Input destination must be a string.",
+      auditDetails: {
+        originalInput: String(untrustedInput),
         checksPassed,
       },
     };
@@ -65,7 +118,7 @@ export function validateRedirect(
   if (sanitized.length === 0) {
     return {
       isValid: false,
-      sanitizedDestination: config.fallbackRoute,
+      sanitizedDestination: safeFallback,
       targetType: "SAFE_FALLBACK",
       rejectionCode: "EMPTY_INPUT",
       rejectionMessage: "Input contains only whitespace characters.",
@@ -81,7 +134,7 @@ export function validateRedirect(
   if (hasControlOrCrlfChars(sanitized)) {
     return {
       isValid: false,
-      sanitizedDestination: config.fallbackRoute,
+      sanitizedDestination: safeFallback,
       targetType: "SAFE_FALLBACK",
       rejectionCode: "CONTROL_CHARS_OR_CRLF",
       rejectionMessage: "Prohibited control or CRLF injection characters detected.",
@@ -97,7 +150,7 @@ export function validateRedirect(
   if (hasBackslashEvasion(sanitized)) {
     return {
       isValid: false,
-      sanitizedDestination: config.fallbackRoute,
+      sanitizedDestination: safeFallback,
       targetType: "SAFE_FALLBACK",
       rejectionCode: "BACKSLASH_EVASION",
       rejectionMessage: "Prohibited backslash (\\) characters detected.",
@@ -113,7 +166,7 @@ export function validateRedirect(
   if (isProtocolRelative(sanitized)) {
     return {
       isValid: false,
-      sanitizedDestination: config.fallbackRoute,
+      sanitizedDestination: safeFallback,
       targetType: "SAFE_FALLBACK",
       rejectionCode: "PROTOCOL_RELATIVE_ATTEMPT",
       rejectionMessage: 'Protocol-relative network paths ("//") are strictly forbidden.',
@@ -129,7 +182,7 @@ export function validateRedirect(
   if (DANGEROUS_SCHEMES_REGEX.test(sanitized)) {
     return {
       isValid: false,
-      sanitizedDestination: config.fallbackRoute,
+      sanitizedDestination: safeFallback,
       targetType: "SAFE_FALLBACK",
       rejectionCode: "DANGEROUS_SCHEME",
       rejectionMessage: "Dangerous or unapproved protocol scheme detected (XSS risk).",
@@ -145,7 +198,7 @@ export function validateRedirect(
   if (hasPathTraversal(sanitized)) {
     return {
       isValid: false,
-      sanitizedDestination: config.fallbackRoute,
+      sanitizedDestination: safeFallback,
       targetType: "SAFE_FALLBACK",
       rejectionCode: "PATH_TRAVERSAL_DETECTED",
       rejectionMessage: 'Path traversal directory sequences ("../") are prohibited.',
@@ -160,12 +213,12 @@ export function validateRedirect(
   // Check 7: WHATWG URL parsing
   let parsedUrl: URL;
   try {
-    // Resolve relative paths safely against expected application origin
-    parsedUrl = new URL(sanitized, config.expectedOrigin);
+    // Resolve relative paths safely against normalized application origin
+    parsedUrl = new URL(sanitized, normalizedExpectedOrigin);
   } catch {
     return {
       isValid: false,
-      sanitizedDestination: config.fallbackRoute,
+      sanitizedDestination: safeFallback,
       targetType: "SAFE_FALLBACK",
       rejectionCode: "MALFORMED_URL_SYNTAX",
       rejectionMessage: "Supplied destination fails RFC 3986 / WHATWG standard URL parsing.",
@@ -178,13 +231,13 @@ export function validateRedirect(
   checksPassed.push("VALID_WHATWG_URL_SYNTAX");
 
   // Check 8: Allowed URI Scheme verification
-  if (!config.allowedSchemes.includes(parsedUrl.protocol)) {
+  if (!allowedSchemes.includes(parsedUrl.protocol)) {
     return {
       isValid: false,
-      sanitizedDestination: config.fallbackRoute,
+      sanitizedDestination: safeFallback,
       targetType: "SAFE_FALLBACK",
       rejectionCode: "DANGEROUS_SCHEME",
-      rejectionMessage: `Protocol "${parsedUrl.protocol}" is not permitted. Permitted: ${config.allowedSchemes.join(", ")}`,
+      rejectionMessage: `Protocol "${parsedUrl.protocol}" is not permitted. Permitted: ${allowedSchemes.join(", ")}`,
       auditDetails: {
         originalInput: rawInput,
         resolvedOrigin: parsedUrl.origin,
@@ -199,7 +252,7 @@ export function validateRedirect(
   if (parsedUrl.username || parsedUrl.password) {
     return {
       isValid: false,
-      sanitizedDestination: config.fallbackRoute,
+      sanitizedDestination: safeFallback,
       targetType: "SAFE_FALLBACK",
       rejectionCode: "USERINFO_PROHIBITED",
       rejectionMessage: "Embedded user authentication credentials (userinfo) are prohibited.",
@@ -213,18 +266,16 @@ export function validateRedirect(
   checksPassed.push("NO_USERINFO_CREDENTIALS");
 
   // Check 10: Origin matching
-  const isDirectOriginMatch = parsedUrl.origin === config.expectedOrigin;
-  const isExternalTrusted =
-    config.allowExternalTrustedOrigins &&
-    config.allowExternalTrustedOrigins.includes(parsedUrl.origin);
+  const isDirectOriginMatch = parsedUrl.origin === normalizedExpectedOrigin;
+  const isExternalTrusted = normalizedExternalOrigins.includes(parsedUrl.origin);
 
   if (!isDirectOriginMatch && !isExternalTrusted) {
     return {
       isValid: false,
-      sanitizedDestination: config.fallbackRoute,
+      sanitizedDestination: safeFallback,
       targetType: "SAFE_FALLBACK",
       rejectionCode: "UNAPPROVED_ORIGIN",
-      rejectionMessage: `Resolved origin "${parsedUrl.origin}" does not match approved application origin "${config.expectedOrigin}".`,
+      rejectionMessage: `Resolved origin "${parsedUrl.origin}" does not match approved application origin "${normalizedExpectedOrigin}".`,
       auditDetails: {
         originalInput: rawInput,
         resolvedOrigin: parsedUrl.origin,
@@ -235,18 +286,37 @@ export function validateRedirect(
   }
   checksPassed.push("ORIGIN_ALLOWLIST_VERIFIED");
 
-  // Check 11: Route allowlist verification
-  if (!isRouteAllowed(parsedUrl.pathname, config.allowedRoutes)) {
+  // Check 11: Route allowlist verification and canonicalization
+  const canonicalPath = canonicalizePathname(parsedUrl.pathname);
+
+  // Reject encoded path separators (%2f / %2F) in the input to prevent canonicalization bypasses
+  if (/%2f/i.test(sanitized)) {
     return {
       isValid: false,
-      sanitizedDestination: config.fallbackRoute,
+      sanitizedDestination: safeFallback,
       targetType: "SAFE_FALLBACK",
       rejectionCode: "UNAPPROVED_ROUTE",
-      rejectionMessage: `Path "${parsedUrl.pathname}" is not on the approved application route allowlist.`,
+      rejectionMessage: "Encoded path separators (%2f) are prohibited.",
       auditDetails: {
         originalInput: rawInput,
         resolvedOrigin: parsedUrl.origin,
         resolvedPathname: parsedUrl.pathname,
+        checksPassed,
+      },
+    };
+  }
+
+  if (!isRouteAllowed(canonicalPath, allowedRoutes, { allowSubpaths })) {
+    return {
+      isValid: false,
+      sanitizedDestination: safeFallback,
+      targetType: "SAFE_FALLBACK",
+      rejectionCode: "UNAPPROVED_ROUTE",
+      rejectionMessage: `Path "${canonicalPath}" is not on the approved application route allowlist.`,
+      auditDetails: {
+        originalInput: rawInput,
+        resolvedOrigin: parsedUrl.origin,
+        resolvedPathname: canonicalPath,
         checksPassed,
       },
     };
@@ -257,6 +327,7 @@ export function validateRedirect(
   const isInputAbsolute = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(sanitized);
 
   if (isInputAbsolute) {
+    parsedUrl.pathname = canonicalPath;
     return {
       isValid: true,
       sanitizedDestination: parsedUrl.href,
@@ -264,15 +335,15 @@ export function validateRedirect(
       auditDetails: {
         originalInput: rawInput,
         resolvedOrigin: parsedUrl.origin,
-        resolvedPathname: parsedUrl.pathname,
+        resolvedPathname: canonicalPath,
         resolvedScheme: parsedUrl.protocol,
         checksPassed,
       },
     };
   }
 
-  // Safe internal relative path: preserve query parameters and hash
-  const safeRelativePath = `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
+  // Safe internal relative path: preserve query parameters and hash, ensuring output path matches validated canonical path
+  const safeRelativePath = `${canonicalPath}${parsedUrl.search}${parsedUrl.hash}`;
 
   return {
     isValid: true,
@@ -281,7 +352,7 @@ export function validateRedirect(
     auditDetails: {
       originalInput: rawInput,
       resolvedOrigin: parsedUrl.origin,
-      resolvedPathname: parsedUrl.pathname,
+      resolvedPathname: canonicalPath,
       resolvedScheme: parsedUrl.protocol,
       checksPassed,
     },
